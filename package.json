@@ -1,0 +1,10 @@
+{
+  "name": "wpx-watch-price-terminal",
+  "version": "1.0.0",
+  "description": "Bloomberg-style watch price terminal for castle watch collection",
+  "private": true,
+  "scripts": {
+    "start": "npx serve . --listen 3000",
+    "dev": "npx serve . --listen 3000 --no-clipboard"
+  }
+}

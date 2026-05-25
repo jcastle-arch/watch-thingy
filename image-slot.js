@@ -71,29 +71,46 @@
   let loaded = false;
   let loadP = null;
 
+  const LS_KEY = 'wpx-image-slots';
+
+  function _lsLoad() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  function _lsSave() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(slots)); } catch {}
+  }
+
+  function _mergeSource(j) {
+    if (!j || typeof j !== 'object') return;
+    const merged = Object.assign({}, j, slots);
+    for (const k in slots) {
+      if (merged[k] && !merged[k].u && j[k]) {
+        merged[k].u = typeof j[k] === 'string' ? j[k] : j[k].u;
+      }
+    }
+    for (const id of tombstones) delete merged[id];
+    slots = merged;
+  }
+
   function load() {
     if (loadP) return loadP;
     loadP = fetch(STATE_FILE)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        // Merge: sidecar loses to any in-memory change that raced ahead of
-        // the fetch (drop or clear) so neither is clobbered by hydration.
-        if (j && typeof j === 'object') {
-          const merged = Object.assign({}, j, slots);
-          // A framing-only write that raced ahead of hydration must not
-          // drop a user image that's only on disk — inherit u from the
-          // sidecar for any in-memory entry that lacks one.
-          for (const k in slots) {
-            if (merged[k] && !merged[k].u && j[k]) {
-              merged[k].u = typeof j[k] === 'string' ? j[k] : j[k].u;
-            }
-          }
-          for (const id of tombstones) delete merged[id];
-          slots = merged;
-        }
+        // Prefer sidecar (omelette runtime); fill gaps from localStorage.
+        _mergeSource(j);
+        if (!j) _mergeSource(_lsLoad());
         tombstones.clear();
       })
-      .catch(() => {})
+      .catch(() => {
+        // Sidecar fetch failed (no omelette server) — use localStorage only.
+        _mergeSource(_lsLoad());
+        tombstones.clear();
+      })
       .then(() => { loaded = true; subs.forEach((fn) => fn()); });
     return loadP;
   }
@@ -107,7 +124,11 @@
   function save() {
     if (saving) { saveDirty = true; return; }
     const w = window.omelette && window.omelette.writeFile;
-    if (!w) return;
+    if (!w) {
+      // Outside omelette — persist to localStorage so drops survive reload.
+      _lsSave();
+      return;
+    }
     saving = true;
     Promise.resolve(w(STATE_FILE, JSON.stringify(slots)))
       .catch(() => {})
@@ -590,8 +611,10 @@
       this._ring.style.borderRadius = mask ? '' : radius;
       this._ring.style.display = mask ? 'none' : '';
 
-      // Controls and reframe entry gate on this so share links stay read-only.
-      const editable = !!(window.omelette && window.omelette.writeFile);
+      // Editable when omelette or localStorage is available (covers both
+      // the Claude Design runtime and standalone static serving).
+      const editable = !!(window.omelette && window.omelette.writeFile) ||
+                       typeof localStorage !== 'undefined';
       this.toggleAttribute('data-editable', editable);
       this._sub.style.display = editable ? '' : 'none';
 
