@@ -40,11 +40,25 @@ function App() {
     return m;
   }, []);
 
+  // Track the avg recorded just before each refresh so the hero delta
+  // shows actual session movement rather than the static seed lastAvg.
+  const [prevAvgByWatch, setPrevAvgByWatch] = useState({});
+
+  // Live chart patches: after a refresh, overwrite the d=0 (NOW) point
+  // so the chart's current value matches the refreshed quotes.
+  const [histPatchByWatch, setHistPatchByWatch] = useState({});
+
   const quotes       = quotesByWatch[activeId] || [];
   const activeQuotes = quotes.filter(q => includedIds.has(q.id));
   const summary      = useMemo(() => summarize(activeQuotes, watch.msrp), [activeQuotes, watch.msrp]);
   const v            = useMemo(() => verdict(summary, watch.msrp), [summary, watch.msrp]);
-  const history      = histByWatch[activeId] || [];
+
+  const history = useMemo(() => {
+    const base  = histByWatch[activeId] || [];
+    const patch = histPatchByWatch[activeId];
+    if (!patch) return base;
+    return [...base.slice(0, -1), { ...base[base.length - 1], ...patch }];
+  }, [histByWatch, histPatchByWatch, activeId]);
 
   const [query, setQuery] = useState('');
   const [range, setRange] = useState('30D');
@@ -73,13 +87,20 @@ function App() {
     if (loading) return;
     setLoading(true);
     if (!silent) addAlert(`<b>${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()}</b> manual refresh initiated.`, 'SYS', 'low');
-    const cur = quotesByWatch[watch.id];
-    const res = await fetchLiveQuotes(watch, cur);
+    const cur    = quotesByWatch[watch.id];
+    const oldAvg = summarize(cur.filter(q => includedIds.has(q.id)), watch.msrp).avg;
+    const res    = await fetchLiveQuotes(watch, cur);
     setLoading(false);
     if (res) {
-      const oldAvg = summarize(cur.filter(q => includedIds.has(q.id)), watch.msrp).avg;
+      // Record the pre-refresh avg so the hero delta is session-accurate.
+      setPrevAvgByWatch(prev => ({ ...prev, [watch.id]: oldAvg }));
       setQuotesByWatch(prev => ({ ...prev, [watch.id]: res.quotes }));
       const newAvg = summarize(res.quotes.filter(q => includedIds.has(q.id)), watch.msrp).avg;
+      // Patch the chart's NOW point to match the live avg.
+      setHistPatchByWatch(prev => ({
+        ...prev,
+        [watch.id]: { avg: newAvg, lo: Math.round(newAvg * 0.94), hi: Math.round(newAvg * 1.06) },
+      }));
       const delta  = newAvg - oldAvg;
       const pctVal = (delta / oldAvg) * 100;
       if (Math.abs(pctVal) > 0.05) {
@@ -121,6 +142,10 @@ function App() {
       const k = e.key.toLowerCase();
       if (k === 'r') { e.preventDefault(); refresh(); }
       else if (k === 't') { setTweak('theme', t.theme === 'editorial' ? 'classic' : 'editorial'); }
+      else if (k === 'e') {
+        // Toggle Tweaks panel — works both inside and outside Claude Design.
+        window.dispatchEvent(new MessageEvent('message', { data: { type: '__activate_edit_mode' } }));
+      }
       else if (k === '/') { e.preventDefault(); document.querySelector('.search-row input')?.focus(); }
       else if (k === 'a') {
         addAlert(`<b>${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()}</b> alert set at <b>$${summary.avg.toLocaleString('en-US')}</b>.`, 'ALR', 'mid');
@@ -152,7 +177,13 @@ function App() {
 
         <div className="col col-mid">
           <SpecBar watch={watch} summary={summary} />
-          <HeroPanel watch={watch} summary={summary} verdict={v} loading={loading} />
+          <HeroPanel
+            watch={watch}
+            summary={summary}
+            verdict={v}
+            loading={loading}
+            prevAvg={prevAvgByWatch[activeId]}
+          />
           <HistoryChart
             history={history}
             summary={summary}

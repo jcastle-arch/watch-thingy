@@ -165,9 +165,11 @@ function SpecBar({ watch, summary }) {
 }
 
 // ── Hero AVG number + verdict + distribution ───────────────────
-function HeroPanel({ watch, summary, verdict: v, loading }) {
-  const wow    = summary.avg - (watch.lastAvg || summary.avg);
-  const wowPct = watch.lastAvg ? wow / watch.lastAvg * 100 : 0;
+function HeroPanel({ watch, summary, verdict: v, loading, prevAvg }) {
+  // Use live prevAvg once a refresh has run; fall back to seed lastAvg.
+  const baseline = prevAvg != null ? prevAvg : (watch.lastAvg || summary.avg);
+  const wow    = summary.avg - baseline;
+  const wowPct = baseline ? wow / baseline * 100 : 0;
   const wowDir = wow >= 0 ? 'up' : 'dn';
 
   const rangeLo = Math.min(summary.lo, watch.msrp) * 0.97;
@@ -527,10 +529,11 @@ function StatusBar({ loading, lastUpdate, clock, sourcesOk }) {
       <div className="spacer" />
       <div className="keys">
         <span className="key"><b>R</b> REFRESH</span>
-        <span className="key"><b>A</b> SET ALERT</span>
+        <span className="key"><b>A</b> ALERT</span>
         <span className="key"><b>/</b> SEARCH</span>
         <span className="key"><b>1-6</b> JUMP</span>
         <span className="key"><b>T</b> THEME</span>
+        <span className="key"><b>E</b> TWEAKS</span>
       </div>
       <div>
         <span className="k">BUILD</span>
