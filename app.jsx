@@ -7,6 +7,23 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "autoRefreshSec": 0
 }/*EDITMODE-END*/;
 
+// ── Price alert threshold helpers ──────────────────────────────
+const LS_THRESHOLDS = 'wpx-thresholds';
+
+function loadThresholds() {
+  try { return JSON.parse(localStorage.getItem(LS_THRESHOLDS)) || {}; } catch { return {}; }
+}
+
+function saveThresholds(t) {
+  try { localStorage.setItem(LS_THRESHOLDS, JSON.stringify(t)); } catch {}
+}
+
+function thresholdCrossed(threshold, avg) {
+  if (!threshold || !avg) return false;
+  return threshold.dir === 'below' ? avg <= threshold.price : avg >= threshold.price;
+}
+
+// ── App ────────────────────────────────────────────────────────
 function App() {
   const {
     RETAILERS, CATALOG, SEED_QUOTES, SEED_ALERTS,
@@ -40,12 +57,7 @@ function App() {
     return m;
   }, []);
 
-  // Track the avg recorded just before each refresh so the hero delta
-  // shows actual session movement rather than the static seed lastAvg.
   const [prevAvgByWatch, setPrevAvgByWatch] = useState({});
-
-  // Live chart patches: after a refresh, overwrite the d=0 (NOW) point
-  // so the chart's current value matches the refreshed quotes.
   const [histPatchByWatch, setHistPatchByWatch] = useState({});
 
   const quotes       = quotesByWatch[activeId] || [];
@@ -53,8 +65,6 @@ function App() {
   const summary      = useMemo(() => summarize(activeQuotes, watch.msrp), [activeQuotes, watch.msrp]);
   const v            = useMemo(() => verdict(summary, watch.msrp), [summary, watch.msrp]);
 
-  // Live avg per watch for the watchlist ticker — recomputed whenever any
-  // quotes or the included-retailer set changes.
   const liveAvgByWatch = useMemo(() => {
     const m = {};
     for (const w of CATALOG) {
@@ -85,6 +95,21 @@ function App() {
     }, ...prev].slice(0, 30));
   }, []);
 
+  // ── Price alert thresholds ─────────────────────────────────────
+  // { [watchId]: { price: number, dir: 'above'|'below' } }
+  const [thresholds, setThresholds] = useState(loadThresholds);
+
+  useEffect(() => { saveThresholds(thresholds); }, [thresholds]);
+
+  const setThreshold = useCallback((watchId, price, dir) => {
+    setThresholds(prev => ({ ...prev, [watchId]: { price, dir } }));
+  }, []);
+
+  const clearThreshold = useCallback((watchId) => {
+    setThresholds(prev => { const n = { ...prev }; delete n[watchId]; return n; });
+  }, []);
+
+  // ── Clock ──────────────────────────────────────────────────────
   const [clock, setClock] = useState(clockStr());
   useEffect(() => {
     const id = setInterval(() => setClock(clockStr()), 1000);
@@ -95,6 +120,7 @@ function App() {
   const [marketNote, setMarketNote] = useState('Mkt opening · feeds syncing.');
   const [lastUpdate, setLastUpdate] = useState('—');
 
+  // ── Refresh ────────────────────────────────────────────────────
   const refresh = useCallback(async (silent = false) => {
     if (loading) return;
     setLoading(true);
@@ -104,22 +130,35 @@ function App() {
     const res    = await fetchLiveQuotes(watch, cur);
     setLoading(false);
     if (res) {
-      // Record the pre-refresh avg so the hero delta is session-accurate.
       setPrevAvgByWatch(prev => ({ ...prev, [watch.id]: oldAvg }));
       setQuotesByWatch(prev => ({ ...prev, [watch.id]: res.quotes }));
       const newAvg = summarize(res.quotes.filter(q => includedIds.has(q.id)), watch.msrp).avg;
-      // Patch the chart's NOW point to match the live avg.
       setHistPatchByWatch(prev => ({
         ...prev,
         [watch.id]: { avg: newAvg, lo: Math.round(newAvg * 0.94), hi: Math.round(newAvg * 1.06) },
       }));
+
+      // Check threshold for the active watch.
+      const thr = thresholds[watch.id];
+      if (thr && thresholdCrossed(thr, newAvg)) {
+        const crossed = thr.dir === 'below'
+          ? `dropped to or below <b>${fmt(thr.price)}</b>`
+          : `risen to or above <b>${fmt(thr.price)}</b>`;
+        addAlert(
+          `<b>ALERT</b> ${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()} avg has ${crossed} — now <b>${fmt(newAvg)}</b>.`,
+          'ALR', 'high'
+        );
+        // Clear the threshold so it doesn't re-fire on the next refresh.
+        clearThreshold(watch.id);
+      }
+
       const delta  = newAvg - oldAvg;
       const pctVal = (delta / oldAvg) * 100;
       if (Math.abs(pctVal) > 0.05) {
         addAlert(
           `<b>${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()}</b> avg ` +
           `<span class="${delta >= 0 ? 'up' : 'dn'}">${delta >= 0 ? '+' : '−'}$${Math.abs(Math.round(delta)).toLocaleString('en-US')}</span> ` +
-          `to <b>$${newAvg.toLocaleString('en-US')}</b>.`,
+          `to <b>${fmt(newAvg)}</b>.`,
           'PX', Math.abs(pctVal) > 0.5 ? 'high' : 'mid'
         );
       }
@@ -128,7 +167,7 @@ function App() {
     } else {
       addAlert(`<b>FEED</b> live source unavailable, retaining last quote.`, 'SYS', 'mid');
     }
-  }, [loading, watch, quotesByWatch, includedIds, addAlert]);
+  }, [loading, watch, quotesByWatch, includedIds, addAlert, thresholds, clearThreshold]);
 
   const didInit = useRef(false);
   useEffect(() => {
@@ -155,12 +194,22 @@ function App() {
       if (k === 'r') { e.preventDefault(); refresh(); }
       else if (k === 't') { setTweak('theme', t.theme === 'editorial' ? 'classic' : 'editorial'); }
       else if (k === 'e') {
-        // Toggle Tweaks panel — works both inside and outside Claude Design.
         window.dispatchEvent(new MessageEvent('message', { data: { type: '__activate_edit_mode' } }));
       }
       else if (k === '/') { e.preventDefault(); document.querySelector('.search-row input')?.focus(); }
       else if (k === 'a') {
-        addAlert(`<b>${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()}</b> alert set at <b>$${summary.avg.toLocaleString('en-US')}</b>.`, 'ALR', 'mid');
+        // Set a "below current avg" threshold as a quick buy-signal alert.
+        const price = summary.avg;
+        if (thresholds[watch.id]) {
+          clearThreshold(watch.id);
+          addAlert(`<b>ALERT CLEARED</b> ${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()} threshold removed.`, 'ALR', 'low');
+        } else {
+          setThreshold(watch.id, price, 'below');
+          addAlert(
+            `<b>ALERT SET</b> ${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()} — notify if avg falls to <b>${fmt(price)}</b> or below.`,
+            'ALR', 'mid'
+          );
+        }
       }
       else if (/^[1-9]$/.test(k)) {
         const idx = parseInt(k, 10) - 1;
@@ -169,9 +218,20 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [t.theme, refresh, addAlert, watch, summary, setTweak]);
+  }, [t.theme, refresh, addAlert, watch, summary, setTweak, thresholds, setThreshold, clearThreshold]);
 
   const sourcesOk = quotes.filter(q => q.px != null).length;
+
+  // ── Tweaks panel threshold state ───────────────────────────────
+  const activeThr    = thresholds[activeId];
+  const [thrPrice, setThrPrice] = useState(() => summary.avg);
+  const [thrDir,   setThrDir]   = useState('below');
+
+  // Keep thrPrice in sync when switching watches or when summary first loads.
+  useEffect(() => {
+    setThrPrice(activeThr ? activeThr.price : summary.avg);
+    setThrDir(activeThr ? activeThr.dir : 'below');
+  }, [activeId, activeThr?.price, activeThr?.dir]);
 
   return (
     <div className="app">
@@ -187,6 +247,7 @@ function App() {
           setQuery={setQuery}
           liveAvgByWatch={liveAvgByWatch}
           prevAvgByWatch={prevAvgByWatch}
+          thresholds={thresholds}
         />
 
         <div className="col col-mid">
@@ -197,6 +258,7 @@ function App() {
             verdict={v}
             loading={loading}
             prevAvg={prevAvgByWatch[activeId]}
+            threshold={activeThr}
           />
           <HistoryChart
             history={history}
@@ -205,6 +267,7 @@ function App() {
             range={range}
             onRange={setRange}
             marketNote={marketNote}
+            threshold={activeThr}
           />
         </div>
 
@@ -235,6 +298,7 @@ function App() {
           ]}
           onChange={(v) => setTweak('theme', v)}
         />
+
         <TweakSection label="Behavior" />
         <TweakSlider
           label="Auto-refresh"
@@ -247,15 +311,54 @@ function App() {
           label={loading ? 'Refreshing…' : 'Refresh quotes now'}
           onClick={() => refresh()}
         />
+
+        <TweakSection label={'Price alert · ' + watch.nick} />
+        {activeThr ? (
+          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 11, padding: '6px 0', color: '#29261b', lineHeight: 1.5 }}>
+            Active: avg {activeThr.dir} <b>${activeThr.price.toLocaleString('en-US')}</b>
+          </div>
+        ) : (
+          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 11, padding: '6px 0', color: 'rgba(41,38,27,.45)', lineHeight: 1.5 }}>
+            No alert set for this watch.
+          </div>
+        )}
+        <TweakNumber
+          label="Target price"
+          value={thrPrice}
+          min={1}
+          step={50}
+          unit="$"
+          onChange={setThrPrice}
+        />
+        <TweakRadio
+          label="Direction"
+          value={thrDir}
+          options={[
+            { value: 'below', label: 'Below' },
+            { value: 'above', label: 'Above' },
+          ]}
+          onChange={setThrDir}
+        />
         <TweakButton
-          label="Set price alert at current avg"
+          label={activeThr ? 'Update alert' : 'Set alert'}
           onClick={() => {
+            setThreshold(activeId, thrPrice, thrDir);
             addAlert(
-              `<b>${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()}</b> alert set at <b>$${summary.avg.toLocaleString('en-US')}</b>.`,
+              `<b>ALERT SET</b> ${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()} — notify if avg goes ${thrDir} <b>${fmt(thrPrice)}</b>.`,
               'ALR', 'mid'
             );
           }}
         />
+        {activeThr && (
+          <TweakButton
+            label="Clear alert"
+            secondary
+            onClick={() => {
+              clearThreshold(activeId);
+              addAlert(`<b>ALERT CLEARED</b> ${watch.brand.toUpperCase()} ${watch.nick.toUpperCase()}.`, 'ALR', 'low');
+            }}
+          />
+        )}
       </TweaksPanel>
     </div>
   );

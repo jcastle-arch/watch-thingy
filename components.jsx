@@ -59,7 +59,7 @@ function Ticker({ catalog, liveAvgByWatch = {}, prevAvgByWatch = {} }) {
 }
 
 // ── Sidebar / watchlist ────────────────────────────────────────
-function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = {}, prevAvgByWatch = {} }) {
+function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = {}, prevAvgByWatch = {}, thresholds = {} }) {
   const filtered = useMemo(() => {
     if (!query.trim()) return catalog;
     const q = query.toLowerCase();
@@ -114,6 +114,9 @@ function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = 
               <div className="nm">
                 {w.brand.toUpperCase()} <em>{w.nick}</em>
                 {w.alerts > 0 && <span className="alert-dot">●{w.alerts}</span>}
+                {thresholds[w.id] && (
+                  <span className="alert-dot" title={`Alert: avg ${thresholds[w.id].dir} $${thresholds[w.id].price.toLocaleString('en-US')}`}> ◎</span>
+                )}
               </div>
               <div className="px">{fmt(liveAvg)}</div>
               <div className="ref">{w.ref}</div>
@@ -169,7 +172,7 @@ function SpecBar({ watch, summary }) {
 }
 
 // ── Hero AVG number + verdict + distribution ───────────────────
-function HeroPanel({ watch, summary, verdict: v, loading, prevAvg }) {
+function HeroPanel({ watch, summary, verdict: v, loading, prevAvg, threshold }) {
   // Use live prevAvg once a refresh has run; fall back to seed lastAvg.
   const baseline = prevAvg != null ? prevAvg : (watch.lastAvg || summary.avg);
   const wow    = summary.avg - baseline;
@@ -219,6 +222,16 @@ function HeroPanel({ watch, summary, verdict: v, loading, prevAvg }) {
           <div className="vlbl">DESK VERDICT</div>
           <div className={'vval ' + v.tone}>◆ {v.code}</div>
           <div className="vnote">{v.note}</div>
+          {threshold && (
+            <div style={{
+              marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border)',
+              fontFamily: 'var(--sans)', fontSize: 10, letterSpacing: '0.1em',
+              color: threshold.dir === 'below' ? 'var(--green)' : 'var(--red)',
+              fontWeight: 600,
+            }}>
+              ◎ ALERT · AVG {threshold.dir.toUpperCase()} {fmt(threshold.price)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -372,7 +385,7 @@ function RetailerTable({ retailers, quotes, summary, watch, includedIds, toggle,
 }
 
 // ── Price history chart ────────────────────────────────────────
-function HistoryChart({ history, summary, watch, range, onRange, marketNote }) {
+function HistoryChart({ history, summary, watch, range, onRange, marketNote, threshold }) {
   const ref  = useRef(null);
   const [size, setSize] = useState({ w: 800, h: 240 });
 
@@ -470,6 +483,20 @@ function HistoryChart({ history, summary, watch, range, onRange, marketNote }) {
           <path className="line-hi"   d={path('hi')} />
           <path className="line-lo"   d={path('lo')} />
           <path className="line-avg"  d={path('avg')} />
+          {threshold && yMin <= threshold.price && threshold.price <= yMax && (() => {
+            const ty = y(threshold.price);
+            const col = threshold.dir === 'below' ? 'var(--green)' : 'var(--red)';
+            return (
+              <g>
+                <line x1={padL} y1={ty} x2={size.w - padR} y2={ty}
+                  stroke={col} strokeWidth="1" strokeDasharray="4 3" opacity="0.8" />
+                <text x={size.w - padR - 4} y={ty - 3} textAnchor="end"
+                  fill={col} fontFamily="var(--sans)" fontSize="8.5" fontWeight="700" letterSpacing="0.08em">
+                  ALERT {threshold.dir.toUpperCase()} ${threshold.price.toLocaleString('en-US')}
+                </text>
+              </g>
+            );
+          })()}
           <circle cx={x(slice.length - 1)} cy={y(last.avg || 0)} r="3" fill="var(--amber)" />
           <circle cx={x(slice.length - 1)} cy={y(last.avg || 0)} r="6" fill="var(--amber)" opacity="0.25" />
         </svg>
@@ -478,6 +505,7 @@ function HistoryChart({ history, summary, watch, range, onRange, marketNote }) {
           <span><span className="sw" style={{ background: 'var(--green)' }} /> LOW</span>
           <span><span className="sw" style={{ background: 'var(--red)'   }} /> HIGH</span>
           <span><span className="sw" style={{ background: 'var(--dim)'   }} /> MSRP</span>
+          {threshold && <span><span className="sw" style={{ background: threshold.dir === 'below' ? 'var(--green)' : 'var(--red)', opacity: 0.8 }} /> ALERT</span>}
         </div>
       </div>
     </div>
