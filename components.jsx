@@ -10,10 +10,14 @@ const usdDelta  = (n) => (n > 0 ? '+' : '') + '$' + Math.abs(Math.round(n)).toLo
 const clockStr  = (d = new Date()) => d.toTimeString().slice(0, 8);
 
 // ── TopBar ─────────────────────────────────────────────────────
-function TopBar({ user, clock }) {
+function TopBar({ user, clock, adminMode, onBrandClick }) {
   return (
     <div className="topbar">
-      <div className="brand"><span className="dot" />WPX TERMINAL</div>
+      <div className="brand" onClick={onBrandClick} style={{ cursor: 'pointer' }} title={adminMode ? 'Admin mode active' : 'Click to access admin'}>
+        <span className="dot" style={adminMode ? { background: '#f44', boxShadow: '0 0 6px #f44' } : {}} />
+        WPX TERMINAL
+        {adminMode && <span style={{ marginLeft: 6, fontSize: 9, letterSpacing: '0.12em', color: '#f66' }}>ADMIN</span>}
+      </div>
       <div className="menu">
         <span>FILE</span><span>VIEW</span><span>WATCHLIST</span>
         <span>ALERTS</span><span>SOURCES</span><span>HELP</span>
@@ -59,7 +63,7 @@ function Ticker({ catalog, liveAvgByWatch = {}, prevAvgByWatch = {} }) {
 }
 
 // ── Sidebar / watchlist ────────────────────────────────────────
-function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = {}, prevAvgByWatch = {}, thresholds = {} }) {
+function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = {}, prevAvgByWatch = {}, thresholds = {}, adminMode = false, onAddWatch, onRemoveWatch }) {
   const filtered = useMemo(() => {
     if (!query.trim()) return catalog;
     const q = query.toLowerCase();
@@ -76,6 +80,9 @@ function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = 
           <div className="h-tab on">MINE</div>
           <div className="h-tab">MARKET</div>
         </div>
+        {adminMode && (
+          <button className="sidebar-admin-btn" onClick={onAddWatch} title="Add watch to catalog">+ ADD</button>
+        )}
       </div>
       <div className="search-row">
         <span className="prompt">›</span>
@@ -123,6 +130,13 @@ function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = 
               <div className={'d ' + dir}>
                 {dir === 'up' ? '▲' : dir === 'dn' ? '▼' : '▬'} {pct(delta)}
               </div>
+              {adminMode && w.custom && (
+                <button
+                  className="wl-remove"
+                  title="Remove from catalog"
+                  onClick={(e) => { e.stopPropagation(); onRemoveWatch(w.id); }}
+                >✕</button>
+              )}
             </div>
           );
         })}

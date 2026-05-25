@@ -30,14 +30,28 @@ function App() {
     genHistory, summarize, verdict, fetchLiveQuotes,
   } = window.WPX_DATA;
 
+  const { loadCustomWatches, saveCustomWatches, makeDefaultQuotes, PassphraseModal, AddWatchModal } = window.WPX_ADMIN;
+
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
+  // ── Admin state ────────────────────────────────────────────────
+  const [adminMode,           setAdminMode]           = useState(false);
+  const [showPassphraseModal, setShowPassphraseModal] = useState(false);
+  const [showAddWatchModal,   setShowAddWatchModal]   = useState(false);
+  const [customWatches,       setCustomWatches]       = useState(loadCustomWatches);
+
+  const effectiveCatalog = useMemo(() => [...CATALOG, ...customWatches], [customWatches]);
+
   const [activeId, setActiveId] = useState('omega-speedy-pro');
-  const watch = useMemo(() => CATALOG.find(w => w.id === activeId), [activeId]);
+  const watch = useMemo(() => effectiveCatalog.find(w => w.id === activeId), [activeId, effectiveCatalog]);
 
   const [quotesByWatch, setQuotesByWatch] = useState(() => {
     const m = {};
     for (const id in SEED_QUOTES) m[id] = SEED_QUOTES[id];
+    // pre-populate quotes for any persisted custom watches
+    for (const w of loadCustomWatches()) {
+      if (!m[w.id]) m[w.id] = makeDefaultQuotes(w.msrp);
+    }
     return m;
   });
 
@@ -53,9 +67,9 @@ function App() {
 
   const histByWatch = useMemo(() => {
     const m = {};
-    for (const w of CATALOG) m[w.id] = genHistory(w);
+    for (const w of effectiveCatalog) m[w.id] = genHistory(w);
     return m;
-  }, []);
+  }, [effectiveCatalog]);
 
   const [prevAvgByWatch, setPrevAvgByWatch] = useState({});
   const [histPatchByWatch, setHistPatchByWatch] = useState({});
@@ -67,13 +81,13 @@ function App() {
 
   const liveAvgByWatch = useMemo(() => {
     const m = {};
-    for (const w of CATALOG) {
+    for (const w of effectiveCatalog) {
       const wq = quotesByWatch[w.id] || [];
       const s  = summarize(wq.filter(q => includedIds.has(q.id)), w.msrp);
       m[w.id]  = s.avg || w.avg;
     }
     return m;
-  }, [quotesByWatch, includedIds]);
+  }, [quotesByWatch, includedIds, effectiveCatalog]);
 
   const history = useMemo(() => {
     const base  = histByWatch[activeId] || [];
@@ -94,6 +108,29 @@ function App() {
       tag, sev, html,
     }, ...prev].slice(0, 30));
   }, []);
+
+  // ── Admin catalog callbacks ────────────────────────────────────
+  const addCustomWatch = useCallback((w, quotes) => {
+    setCustomWatches(prev => {
+      const next = [...prev, w];
+      saveCustomWatches(next);
+      return next;
+    });
+    setQuotesByWatch(prev => ({ ...prev, [w.id]: quotes }));
+    setActiveId(w.id);
+    setShowAddWatchModal(false);
+    addAlert(`<b>CATALOG</b> ${w.brand.toUpperCase()} ${w.nick.toUpperCase()} added to watchlist.`, 'SYS', 'low');
+  }, [addAlert, saveCustomWatches]);
+
+  const removeCustomWatch = useCallback((id) => {
+    setCustomWatches(prev => {
+      const next = prev.filter(w => w.id !== id);
+      saveCustomWatches(next);
+      return next;
+    });
+    setActiveId(prev => prev === id ? 'omega-speedy-pro' : prev);
+    addAlert(`<b>CATALOG</b> Watch removed from watchlist.`, 'SYS', 'low');
+  }, [addAlert, saveCustomWatches]);
 
   // ── Price alert thresholds ─────────────────────────────────────
   // { [watchId]: { price: number, dir: 'above'|'below' } }
@@ -235,12 +272,33 @@ function App() {
 
   return (
     <div className="app">
-      <TopBar user="kira@castle-watch.co" clock={clock} />
-      <Ticker catalog={CATALOG} liveAvgByWatch={liveAvgByWatch} prevAvgByWatch={prevAvgByWatch} />
+      {showPassphraseModal && (
+        <PassphraseModal
+          onSuccess={() => { setAdminMode(true); setShowPassphraseModal(false); addAlert('<b>ADMIN</b> Catalog editing unlocked.', 'SYS', 'mid'); }}
+          onCancel={() => setShowPassphraseModal(false)}
+        />
+      )}
+      {showAddWatchModal && (
+        <AddWatchModal
+          onAdd={addCustomWatch}
+          onCancel={() => setShowAddWatchModal(false)}
+        />
+      )}
+
+      <TopBar
+        user="kira@castle-watch.co"
+        clock={clock}
+        adminMode={adminMode}
+        onBrandClick={() => {
+          if (adminMode) { setAdminMode(false); addAlert('<b>ADMIN</b> Catalog editing locked.', 'SYS', 'low'); }
+          else setShowPassphraseModal(true);
+        }}
+      />
+      <Ticker catalog={effectiveCatalog} liveAvgByWatch={liveAvgByWatch} prevAvgByWatch={prevAvgByWatch} />
 
       <div className="main">
         <Sidebar
-          catalog={CATALOG}
+          catalog={effectiveCatalog}
           activeId={activeId}
           onPick={setActiveId}
           query={query}
@@ -248,6 +306,9 @@ function App() {
           liveAvgByWatch={liveAvgByWatch}
           prevAvgByWatch={prevAvgByWatch}
           thresholds={thresholds}
+          adminMode={adminMode}
+          onAddWatch={() => setShowAddWatchModal(true)}
+          onRemoveWatch={removeCustomWatch}
         />
 
         <div className="col col-mid">
