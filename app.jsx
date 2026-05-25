@@ -53,6 +53,18 @@ function App() {
   const summary      = useMemo(() => summarize(activeQuotes, watch.msrp), [activeQuotes, watch.msrp]);
   const v            = useMemo(() => verdict(summary, watch.msrp), [summary, watch.msrp]);
 
+  // Live avg per watch for the watchlist ticker — recomputed whenever any
+  // quotes or the included-retailer set changes.
+  const liveAvgByWatch = useMemo(() => {
+    const m = {};
+    for (const w of CATALOG) {
+      const wq = quotesByWatch[w.id] || [];
+      const s  = summarize(wq.filter(q => includedIds.has(q.id)), w.msrp);
+      m[w.id]  = s.avg || w.avg;
+    }
+    return m;
+  }, [quotesByWatch, includedIds]);
+
   const history = useMemo(() => {
     const base  = histByWatch[activeId] || [];
     const patch = histPatchByWatch[activeId];
@@ -164,7 +176,7 @@ function App() {
   return (
     <div className="app">
       <TopBar user="kira@castle-watch.co" clock={clock} />
-      <Ticker catalog={CATALOG} />
+      <Ticker catalog={CATALOG} liveAvgByWatch={liveAvgByWatch} prevAvgByWatch={prevAvgByWatch} />
 
       <div className="main">
         <Sidebar
@@ -173,6 +185,8 @@ function App() {
           onPick={setActiveId}
           query={query}
           setQuery={setQuery}
+          liveAvgByWatch={liveAvgByWatch}
+          prevAvgByWatch={prevAvgByWatch}
         />
 
         <div className="col col-mid">

@@ -30,14 +30,16 @@ function TopBar({ user, clock }) {
 }
 
 // ── Ticker tape ────────────────────────────────────────────────
-function Ticker({ catalog }) {
+function Ticker({ catalog, liveAvgByWatch = {}, prevAvgByWatch = {} }) {
   const items = useMemo(() => {
     const arr = catalog.map((w) => {
-      const delta = (w.avg - w.lastAvg) / w.lastAvg * 100;
-      return { ref: w.ref.split('.')[0].slice(0, 8) || w.ref, px: w.avg, d: delta, nick: w.nick };
+      const liveAvg = liveAvgByWatch[w.id] || w.avg;
+      const baseAvg = prevAvgByWatch[w.id]  || w.lastAvg || liveAvg;
+      const delta   = baseAvg ? (liveAvg - baseAvg) / baseAvg * 100 : 0;
+      return { px: liveAvg, d: delta, nick: w.nick };
     });
     return [...arr, ...arr, ...arr];
-  }, [catalog]);
+  }, [catalog, liveAvgByWatch, prevAvgByWatch]);
   return (
     <div className="ticker">
       <div className="label">LIVE TAPE</div>
@@ -57,7 +59,7 @@ function Ticker({ catalog }) {
 }
 
 // ── Sidebar / watchlist ────────────────────────────────────────
-function Sidebar({ catalog, activeId, onPick, query, setQuery }) {
+function Sidebar({ catalog, activeId, onPick, query, setQuery, liveAvgByWatch = {}, prevAvgByWatch = {} }) {
   const filtered = useMemo(() => {
     if (!query.trim()) return catalog;
     const q = query.toLowerCase();
@@ -89,8 +91,10 @@ function Sidebar({ catalog, activeId, onPick, query, setQuery }) {
           <span>★ TRACKED</span><span className="ct">{filtered.length} / {catalog.length}</span>
         </div>
         {filtered.map((w) => {
-          const delta = (w.avg - w.lastAvg) / w.lastAvg * 100;
-          const dir   = delta > 0.05 ? 'up' : delta < -0.05 ? 'dn' : 'flat';
+          const liveAvg = liveAvgByWatch[w.id] || w.avg;
+          const baseAvg = prevAvgByWatch[w.id]  || w.lastAvg || liveAvg;
+          const delta   = baseAvg ? (liveAvg - baseAvg) / baseAvg * 100 : 0;
+          const dir     = delta > 0.05 ? 'up' : delta < -0.05 ? 'dn' : 'flat';
           return (
             <div
               key={w.id}
@@ -111,7 +115,7 @@ function Sidebar({ catalog, activeId, onPick, query, setQuery }) {
                 {w.brand.toUpperCase()} <em>{w.nick}</em>
                 {w.alerts > 0 && <span className="alert-dot">●{w.alerts}</span>}
               </div>
-              <div className="px">{fmt(w.avg)}</div>
+              <div className="px">{fmt(liveAvg)}</div>
               <div className="ref">{w.ref}</div>
               <div className={'d ' + dir}>
                 {dir === 'up' ? '▲' : dir === 'dn' ? '▼' : '▬'} {pct(delta)}
@@ -481,19 +485,36 @@ function HistoryChart({ history, summary, watch, range, onRange, marketNote }) {
 }
 
 // ── Alerts panel ──────────────────────────────────────────────
+const ALERT_FILTERS = {
+  ALL: () => true,
+  PX:  (a) => a.tag === 'PX' || a.tag === 'ALR',
+  STK: (a) => a.tag === 'STK',
+};
+
 function AlertsPanel({ alerts }) {
+  const [filter, setFilter] = useState('ALL');
+  const visible = useMemo(() => alerts.filter(ALERT_FILTERS[filter]), [alerts, filter]);
   return (
     <div className="alerts">
       <div className="panel-h">
         <span className="seq">F3</span><span>Alerts Feed · Live</span>
         <div className="h-tabs">
-          <div className="h-tab on">ALL</div>
-          <div className="h-tab">PX</div>
-          <div className="h-tab">STK</div>
+          {Object.keys(ALERT_FILTERS).map((f) => (
+            <div
+              key={f}
+              className={'h-tab' + (f === filter ? ' on' : '')}
+              onClick={() => setFilter(f)}
+            >{f}</div>
+          ))}
         </div>
       </div>
       <div className="alert-list">
-        {alerts.map((a) => (
+        {visible.length === 0 && (
+          <div style={{ padding: '14px 10px', color: 'var(--dim)', fontFamily: 'var(--sans)', fontSize: 10, letterSpacing: '0.1em' }}>
+            NO {filter} ALERTS
+          </div>
+        )}
+        {visible.map((a) => (
           <div key={a.id} className={'alert' + (a.sev === 'high' ? ' severe' : '')}>
             <span className="t">{a.t}</span>
             <span className="b" dangerouslySetInnerHTML={{ __html: a.html }} />
