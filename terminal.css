@@ -55,7 +55,7 @@ body {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
-  min-width: 1440px;
+  min-width: 1100px;
   overflow-x: auto;
 }
 
@@ -958,3 +958,47 @@ body {
   padding: 0 4px; flex-shrink: 0;
 }
 .wl-remove:hover { color: var(--red); }
+
+/* ─────────── RESPONSIVE: LAPTOP (≤ 1380px) ─────────── */
+@media (max-width: 1380px) {
+  .main { grid-template-columns: 210px 1fr 380px; }
+  .hero { grid-template-columns: 400px 1fr; }
+  .topbar .menu { gap: 10px; }
+  .topbar .menu span { font-size: 9.5px; }
+  .topbar .info span { font-size: 9.5px; }
+}
+
+/* ─────────── RESPONSIVE: SMALL LAPTOP (≤ 1280px) ─────────── */
+@media (max-width: 1280px) {
+  body { min-width: 1100px; font-size: 11px; }
+  .main { grid-template-columns: 190px 1fr 340px; }
+  .hero { grid-template-columns: 360px 1fr; }
+  .topbar { padding: 0 10px; gap: 8px; }
+  .topbar .menu { display: none; }
+  .topbar .info { gap: 10px; }
+  .topbar .info span { font-size: 9px; }
+  .ticker .tick { padding: 0 10px; gap: 6px; font-size: 10px; }
+  .sidebar .wl-item { padding: 7px 8px; }
+  .specbar { padding: 6px 10px; gap: 10px; }
+  .specbar .id .brand { font-size: 10px; }
+  .specbar .id .model { font-size: 16px; }
+  .hero-num { padding: 14px; }
+  .hero-num .avg { font-size: 44px; }
+  .range-stats .cell .v { font-size: 18px; }
+  .r-row { font-size: 10px; }
+  .r-row .nm .n { font-size: 10px; }
+  .r-row .bar-wrap { min-width: 40px; }
+  .alerts-panel { font-size: 10px; }
+  .status { font-size: 9px; padding: 0 8px; }
+  .status .keys { gap: 8px; }
+}
+
+/* ─────────── RESPONSIVE: COMPACT (≤ 1180px) ─────────── */
+@media (max-width: 1180px) {
+  .main { grid-template-columns: 170px 1fr 300px; }
+  .hero { grid-template-columns: 320px 1fr; }
+  .hero-num .avg { font-size: 38px; }
+  .specbar .svgbox { display: none; }
+  .specbar .stats { gap: 8px; }
+  .specbar .stat { min-width: 60px; }
+}
